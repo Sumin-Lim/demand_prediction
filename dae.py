@@ -1,3 +1,11 @@
+'''
+Author: Sumin Lim @ KAIST BTM
+Date: 2021-10-25
+Usage: python dae.py
+Description:
+    * Run DAE-CNN, DAE-LSTM, DAE-ConvLSTM
+'''
+from typing import Tuple, Dict
 from tqdm import tqdm
 from datetime import datetime
 from typing import Tuple
@@ -14,12 +22,12 @@ from sklearn.metrics import mean_squared_error
 from load_data import main as main_data
 from keras.activations import sigmoid
 
-def smape(a, b):
+def smape(a: np.array, b: np.array) -> float:
     a = np.reshape(a, (-1, ))
     b = np.reshape(b, (-1, ))
     return np.mean(2.0*np.abs(a-b) / (np.abs(a)+np.abs(b)+1)).item()*100
 
-def get_data(sliding=True):
+def get_data(sliding: bool=True) -> Tuple[np.array]:
     sliding_dates_week, tensor, _ = main_data()
     n_weeks_sliding_train = (len(sliding_dates_week) * 2) // 3
     X_train = []
@@ -30,7 +38,8 @@ def get_data(sliding=True):
     for idx in range(len(sliding_dates_week)):
         week = sliding_dates_week[idx]
         if sliding:
-            X_data = np.array([np.expand_dims(tensor[x],axis=-1) for x in week[:6]])
+            X_data = np.array(
+                    [np.expand_dims(tensor[x],axis=-1) for x in week[:6]])
             y_data = np.array([np.expand_dims(tensor[week[-1]],axis=-1)])
             if idx < n_weeks_sliding_train:
                 X_train.append(X_data)
@@ -51,7 +60,7 @@ def get_data(sliding=True):
 
     return X_train, X_test, y_train, y_test
 
-def dae_model(rows: int, cols: int, conv=True):
+def dae_model(rows: int, cols: int, conv=True) -> keras.Model:
     inp = layers.Input(shape=(rows, cols, 1))
     print('input:', inp.shape)
     flatten1 = layers.Flatten()(inp)
@@ -121,7 +130,7 @@ def dae_model(rows: int, cols: int, conv=True):
     model_intermediate = keras.Model(inp, conv3)
     return model_train, model_intermediate
 
-def get_hidden(unet_feature, data):
+def get_hidden(unet_feature: keras.Model, data: np.array) -> np.array:
     X_feature = []
     for seq in tqdm(data):
         temp = []
@@ -135,7 +144,7 @@ def get_hidden(unet_feature, data):
     X_feature = np.array(X_feature)
     return X_feature
 
-def cnn_model(rows: int, cols: int, x_shape: Tuple[int]):
+def cnn_model(rows: int, cols: int, x_shape: Tuple[int]) -> keras.Model:
     inp = layers.Input(shape=x_shape[1:])
     x = layers.Conv2D(
             filters=64,
@@ -154,7 +163,7 @@ def cnn_model(rows: int, cols: int, x_shape: Tuple[int]):
     model = keras.Model(inp, out)
     return model
 
-def lstm_model(rows: int, cols:int, x_shape: Tuple[int]):
+def lstm_model(rows: int, cols:int, x_shape: Tuple[int]) -> keras.Model:
     inp = layers.Input(shape=x_shape[1:])
     x = layers.Reshape(target_shape=(6, x_shape[2]*x_shape[3]*x_shape[4]))(inp)
     x = layers.LSTM(
@@ -172,7 +181,7 @@ def lstm_model(rows: int, cols:int, x_shape: Tuple[int]):
     model = keras.Model(inp, out)
     return model
 
-def convlstm_model(rows: int, cols: int, x_shape: Tuple[int]):
+def convlstm_model(rows: int, cols: int, x_shape: Tuple[int]) -> keras.Model:
     inp = layers.Input(shape=x_shape[1:])
     x = layers.ConvLSTM2D(
             filters=64,
@@ -193,7 +202,10 @@ def convlstm_model(rows: int, cols: int, x_shape: Tuple[int]):
     model = keras.Model(inp, out)
     return model
 
-def main(X_train, X_test, Y_train, Y_test):
+def main(X_train: np.array,
+         X_test: np.array,
+         Y_train: np.array,
+         Y_test: np.array) -> Dict:
     rmse = tf.keras.metrics.RootMeanSquaredError()
 
     tensor = get_data(sliding=False)

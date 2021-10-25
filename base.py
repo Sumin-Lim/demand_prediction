@@ -1,3 +1,11 @@
+'''
+Author: Sumin Lim @ KAIST
+Date: 2021-10-25
+Usage: python base.py
+Description:
+    * Train baseline models - CNN, LSTM, ConvLSTM
+    * TODO: add linear regression, XGBOOST, prophet, ARIMA
+'''
 from tqdm import tqdm
 from datetime import datetime
 from typing import Tuple

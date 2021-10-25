@@ -1,23 +1,38 @@
+'''
+Author: Sumin Lim @ KAIST
+Date: 2021-10-25
+Usage: python load_data.py
+Description:
+    * Preprocessing of driver's log data
+    * Generate tensor
+    * Split data for training and test
+'''
 from tqdm import tqdm
 from datetime import datetime
 import numpy as np
 import pandas as pd
 import h3
 
-def load_data():
-    df = pd.read_csv('../data/07_03.csv')
+def load_data(filepath: str='../data/07_03.csv') -> pd.DataFrame:
+    df = pd.read_csv(filepath)
     df = df.reset_index()
     df.rename(columns={'index': 'numbering'}, inplace=True)
 
-    df['request_dt'] = pd.to_datetime(df['request_at'].str.rstrip('UTC'), format='%Y-%m-%d %H:%M:%S')
+    df['request_dt'] = pd.to_datetime(df['request_at'].str.rstrip('UTC'),
+            format='%Y-%m-%d %H:%M:%S')
     df['pickup'] = df['pickup_date'] + ' ' + df['pickup_time']
     df['pickup_dt'] = pd.to_datetime(df['pickup'], format='%Y-%m-%d %H:%M:%S')
 
-    days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
-    df['pickup_weekday'] = pd.Categorical(df['pickup_weekday'], categories=days, ordered=True)
+    days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday',
+            'Thursday', 'Friday', 'Saturday']
+    df['pickup_weekday'] = pd.Categorical(df['pickup_weekday'],
+                                          categories=days,
+                                          ordered=True)
 
-    lat_cond = (df['pickup_latitude'] <= 38.2033) & (df['pickup_latitude'] >= 37.1897)
-    lng_cond = (df['pickup_longitude'] <= -121.5871) & (df['pickup_longitude'] >= -122.6445)
+    lat_cond = ((df['pickup_latitude'] <= 38.2033)
+             & (df['pickup_latitude'] >= 37.1897))
+    lng_cond = ((df['pickup_longitude'] <= -121.5871)
+             & (df['pickup_longitude'] >= -122.6445))
     df = df[lat_cond & lng_cond]
     df['pickup_loc'] = tuple(zip(df['pickup_latitude'], df['pickup_longitude']))
 

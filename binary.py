@@ -1,3 +1,12 @@
+'''
+Author: Sumin Lim @ KAIST
+Date: 2021-10-25
+Usage: python binary.py
+Description:
+    * First step of Two-step prediction
+    * Binary prediction whether a focal region has a riding or not
+    * Second step of prediction is in progress
+'''
 from tqdm import tqdm
 from datetime import datetime
 import pickle as pkl

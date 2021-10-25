@@ -1,3 +1,13 @@
+'''
+Author: Sumin Lim @ KAIST BTM
+Date: 2021-10-25
+Usage: python deep_tobit.py
+Description:
+    * Run Dee-tobit network
+Reference: Zhang, Jiaming, Zhanfeng Li, Xinyuan Song, and Hanwen Ning.
+    "Deep Tobit networks: A novel machine learning approach to microeconometrics."
+    Neural Networks 144 (2021): 279-296.
+'''
 from tqdm import tqdm
 from datetime import datetime
 from typing import Tuple
