@@ -9,6 +9,7 @@ from typing import Tuple, Dict
 from tqdm import tqdm
 from datetime import datetime
 from typing import Tuple
+import argparse
 import pickle as pkl
 import numpy as np
 import pandas as pd
@@ -234,7 +235,7 @@ def main(X_train: np.array,
     predict_cnn = cnn.predict(X_test_feature)
     smape_cnn = smape(Y_test, predict_cnn)
 
-    lstm= lstm_model(55, 36, X_train_feature.shape)
+    lstm = lstm_model(55, 36, X_train_feature.shape)
     lstm.compile(
             loss=keras.losses.mean_squared_error,
             optimizer=keras.optimizers.Adam())
@@ -293,14 +294,33 @@ def main(X_train: np.array,
     print(lstm.summary())
     print('ConvLSTM model')
     print(convlstm.summary())
+
+    with open('result/dae_cnn_summary.txt', 'w') as f:
+        cnn.summary(print_fn=lambda x: f.write(x+'\n'))
+
+    with open('result/dae_lstm_summary.txt', 'w') as f:
+        lstm.summary(print_fn=lambda x: f.write(x+'\n'))
+
+    with open('result/dae_convlstm_summary.txt', 'w') as f:
+        convlstm.summary(print_fn=lambda x: f.write(x+'\n'))
+
     return res
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Set the number of' \
+            'experiments')
+    parser.add_argument('-e', '--experiments',
+            metavar='E',
+            type=int,
+            default=50,
+            help='number of experiments')
+    args = parser.parse_args()
+
     X_train, X_test, Y_train, Y_test = get_data()
 
     result = []
-    for _ in tqdm(range(10)):
+    for _ in tqdm(range(args.experiments)):
         result.append(main(X_train, X_test, Y_train, Y_test))
 
     df_res = pd.DataFrame(result)
-    df_res.to_csv('result/result_unet.csv')
+    df_res.to_csv('result/result_dae.csv')

@@ -222,6 +222,14 @@ def main(X_train, X_test, Y_train, Y_test):
     print('convlstm smape:', smape_convlstm)
     print('convlstm rmse:', rmse(Y_test, predict_convlstm).numpy())
     print('=============================================================')
+
+    with open('result/cnn_summary.txt', 'w') as f:
+        cnn.summary(print_fn=lambda x: f.write(x+'\n'))
+    with open('result/lstm_summary.txt', 'w') as f:
+        lstm.summary(print_fn=lambda x: f.write(x+'\n'))
+    with open('result/convlstm_summary.txt', 'w') as f:
+        convlstm.summary(print_fn=lambda x: f.write(x+'\n'))
+
     return res
 
 if __name__ == '__main__':
