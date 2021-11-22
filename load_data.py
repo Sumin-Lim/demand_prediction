@@ -7,6 +7,7 @@ Description:
     * Generate tensor
     * Split data for training and test
 '''
+from typing import List
 from tqdm import tqdm
 from datetime import datetime
 import numpy as np
@@ -14,7 +15,7 @@ import pandas as pd
 import h3
 
 def load_data(filepath: str='../data/07_03.csv') -> pd.DataFrame:
-    df = pd.read_csv(filepath)
+    df = pd.read_csv(filepath, low_memory=False)
     df = df.reset_index()
     df.rename(columns={'index': 'numbering'}, inplace=True)
 
@@ -56,7 +57,38 @@ def load_data(filepath: str='../data/07_03.csv') -> pd.DataFrame:
 
     return df
 
-def main():
+def get_time_interval(df: pd.DataFrame, time_interval: str='24H') -> List:
+    if time_interval == '24H':
+        dates = [datetime.strptime(x, '%Y-%m-%d') for x in
+                    df['pickup_date'].unique().tolist()]
+    else:
+        dates_start = df['pickup_dt'].min()
+        dates_end = df['pickup_dt'].max()
+
+        if dates_start.minute < 30:
+            dates_start = dates_start.replace(minute=0, second=0)
+        else:
+            dates_start = dates_start.replace(minute=30, second=0)
+
+        if dates_end.minute < 30:
+            dates_end = dates_end.replace(minute=0, second=0)
+        else:
+            dates_end = dates_end.replace(minute=30, second=0)
+
+        dates = pd.date_range(start=dates_start,
+                              end=dates_end,
+                              freq=time_interval,
+                              closed=None)
+
+        if df['pickup_dt'].max() > dates[-1]:
+            time_add = int(''.join([x for x in time_interval if x.isdigit()]))
+            time_unit = ''.join([x for x in time_interval if x.isalpha()])
+            time_lastslot = dates[-1]+pd.Timedelta(time_add, unit=time_unit)
+            dates = dates.union([time_lastslot])
+
+    return dates
+
+def main(time_interval='24H'):
     df = load_data()
 
     rows, cols = zip(*df['h3_xy'].unique())
@@ -67,32 +99,41 @@ def main():
     cols_scaled = {x: idx for idx, x in enumerate(cols_range)}
 
     locations = df['h3_xy_scale'].unique().tolist()
-    dates = [datetime.strptime(x, '%Y-%m-%d') for x in
-                df['pickup_date'].unique().tolist()]
-    dates = sorted(dates)
+    dates = get_time_interval(df, time_interval)
 
     tensor = {}
     tensor_binary = {}
     n_rows, n_cols = len(rows_scaled.values()), len(cols_scaled.values())
 
-    for date in tqdm(dates):
-        temp = df[df['pickup_date'] == date.strftime('%Y-%m-%d')]
+    print('\nMaking matrices with time interval...\n')
+    for idx, date in tqdm(enumerate(dates), total=len(dates)):
+        if time_interval == '24H':
+            temp = df[df['pickup_date'] == date.strftime('%Y-%m-%d')]
+        else:
+            #temp = df[dates[idx] < df['pickup_dt'] < dates[idx+1]]
+            try:
+                temp = df[(df['pickup_dt'] < dates[idx+1])
+                        & (df['pickup_dt'] >= dates[idx])]
+            except IndexError:
+                break
+
         demand_cnt = temp.groupby('h3_xy_scale')['numbering'].count()
+        if demand_cnt.shape[0] == 0:
+            continue
         temp_rows, temp_cols = zip(*list(demand_cnt.index))
 
         data = np.zeros((n_rows, n_cols))
         data[temp_rows, temp_cols] = demand_cnt
         tensor[date] = data
 
-        data_binary = np.zeros((n_rows, n_cols))
-        data_binary[temp_rows, temp_cols] = 1
-        tensor_binary[date] = data_binary
+        #data_binary = np.zeros((n_rows, n_cols))
+        #data_binary[temp_rows, temp_cols] = 1
+        #tensor_binary[date] = data_binary
 
-    sliding_dates_week = [dates[i:i+7] for i in range(len(dates)-6)]
+    #sliding_dates_week = [dates[i:i+7] for i in range(len(dates)-6)]
 
-    return sliding_dates_week, tensor, tensor_binary
+    return dates, tensor
+    #return sliding_dates_week, tensor, tensor_binary
 
 if __name__=='__main__':
-    sliding_dates_week, tensor, tensor_binary = main()
-    print(tensor)
-    print(tensor_binary)
+    dates, tensor, tensor_binary = main(time_interval='30min')

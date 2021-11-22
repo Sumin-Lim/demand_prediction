@@ -28,20 +28,26 @@ def smape(a: np.array, b: np.array) -> float:
     b = np.reshape(b, (-1, ))
     return np.mean(2.0*np.abs(a-b) / (np.abs(a)+np.abs(b)+1)).item()*100
 
-def get_data(sliding: bool=True) -> Tuple[np.array]:
-    sliding_dates_week, tensor, _ = main_data()
-    n_weeks_sliding_train = (len(sliding_dates_week) * 2) // 3
+def get_data(time_interval: str,
+             n_sliding: int,
+             sliding: bool=True) -> Tuple[np.array]:
+
+    #sliding_dates_week, tensor, _ = main_data()
+    _, tensor = main_data(time_interval=time_interval)
+    dates = list(tensor.keys())
+    sliding_dates = [dates[i:i+n_sliding] for i in range(len(dates)-n_sliding)]
+    n_weeks_sliding_train = (len(sliding_dates) * 2) // 3
     X_train = []
     y_train = []
     X_test = []
     y_test = []
 
-    for idx in range(len(sliding_dates_week)):
-        week = sliding_dates_week[idx]
+    for idx in range(len(sliding_dates)):
+        slot = sliding_dates[idx]
         if sliding:
-            X_data = np.array(
-                    [np.expand_dims(tensor[x],axis=-1) for x in week[:6]])
-            y_data = np.array([np.expand_dims(tensor[week[-1]],axis=-1)])
+            X_data = np.array([np.expand_dims(tensor[x],axis=-1)
+                for x in slot[:n_sliding]])
+            y_data = np.array([np.expand_dims(tensor[slot[-1]],axis=-1)])
             if idx < n_weeks_sliding_train:
                 X_train.append(X_data)
                 y_train.append(y_data)
@@ -133,6 +139,9 @@ def dae_model(rows: int, cols: int, conv=True) -> keras.Model:
 
 def get_hidden(unet_feature: keras.Model, data: np.array) -> np.array:
     X_feature = []
+    print('-----------------------------------------------------------------')
+    print('Get hidden features as numpy array')
+    print('-----------------------------------------------------------------')
     for seq in tqdm(data):
         temp = []
         for batch in seq:
@@ -164,9 +173,9 @@ def cnn_model(rows: int, cols: int, x_shape: Tuple[int]) -> keras.Model:
     model = keras.Model(inp, out)
     return model
 
-def lstm_model(rows: int, cols:int, x_shape: Tuple[int]) -> keras.Model:
+def lstm_model(rows: int, cols:int, x_shape: Tuple[int], n_sliding: int) -> keras.Model:
     inp = layers.Input(shape=x_shape[1:])
-    x = layers.Reshape(target_shape=(6, x_shape[2]*x_shape[3]*x_shape[4]))(inp)
+    x = layers.Reshape(target_shape=(n_sliding, x_shape[2]*x_shape[3]*x_shape[4]))(inp)
     x = layers.LSTM(
             units=32,
             return_sequences=True
@@ -206,10 +215,13 @@ def convlstm_model(rows: int, cols: int, x_shape: Tuple[int]) -> keras.Model:
 def main(X_train: np.array,
          X_test: np.array,
          Y_train: np.array,
-         Y_test: np.array) -> Dict:
+         Y_test: np.array,
+         interval: str,
+         n_sliding: int) -> Dict:
     rmse = tf.keras.metrics.RootMeanSquaredError()
 
-    tensor = get_data(sliding=False)
+    print('Get tensor data for training DAE...')
+    tensor = get_data(interval, n_sliding, sliding=False)
     dae, dae_feature = dae_model(X_train.shape[2], X_train.shape[3])
     dae.compile(
             loss=keras.losses.mean_squared_error,
@@ -221,7 +233,8 @@ def main(X_train: np.array,
     X_train_feature = get_hidden(dae_feature, X_train)
     X_test_feature = get_hidden(dae_feature, X_test)
 
-
+    print('Hidden features shape - X_train:', X_train_feature.shape)
+    print('Hidden features shape - X_test:', X_test_feature.shape)
     cnn = cnn_model(55, 36, X_train_feature.shape)
     cnn.compile(
             loss=keras.losses.mean_squared_error,
@@ -235,7 +248,7 @@ def main(X_train: np.array,
     predict_cnn = cnn.predict(X_test_feature)
     smape_cnn = smape(Y_test, predict_cnn)
 
-    lstm = lstm_model(55, 36, X_train_feature.shape)
+    lstm = lstm_model(55, 36, X_train_feature.shape, n_sliding)
     lstm.compile(
             loss=keras.losses.mean_squared_error,
             optimizer=keras.optimizers.Adam())
@@ -314,13 +327,37 @@ if __name__ == '__main__':
             type=int,
             default=50,
             help='number of experiments')
+    parser.add_argument('-i', '--interval',
+            metavar='I',
+            type=str)
+    parser.add_argument('-n', '--n_sliding',
+            metavar='N',
+            type=int,
+            help='Number of sliding windows to use for training')
     args = parser.parse_args()
 
-    X_train, X_test, Y_train, Y_test = get_data()
+    print()
+    print('=================================================================')
+    print('Current interval:', args.interval)
+    print('Current n_sliding:', args.n_sliding)
+    print('=================================================================')
+    print()
+    print('Make X_train, X_test, Y_train, Y_test ...')
+    X_train, X_test, Y_train, Y_test = get_data(args.interval, args.n_sliding)
+    print('Data shape, X_train:', X_train.shape)
+    print('Data shape, X_test:', X_test.shape)
+    print('Data shape, Y_train:', Y_train.shape)
+    print('Data shape, Y_test:', Y_test.shape)
 
     result = []
+    print('\nExperiments...')
     for _ in tqdm(range(args.experiments)):
-        result.append(main(X_train, X_test, Y_train, Y_test))
+        result.append(main(X_train,
+                           X_test,
+                           Y_train,
+                           Y_test,
+                           args.interval,
+                           args.n_sliding))
 
     df_res = pd.DataFrame(result)
-    df_res.to_csv('result/result_dae.csv')
+    df_res.to_csv(f'result/result_dae_{args.interval}_{args.n_sliding}.csv')
