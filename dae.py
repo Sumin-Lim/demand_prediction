@@ -9,6 +9,8 @@ from typing import Tuple, Dict
 from tqdm import tqdm
 from datetime import datetime
 from typing import Tuple
+from pathlib import Path
+import time
 import argparse
 import pickle as pkl
 import numpy as np
@@ -20,52 +22,15 @@ from tensorflow.keras import models, layers
 from tensorflow import keras
 from keras.callbacks import EarlyStopping
 from sklearn.metrics import mean_squared_error
-from load_data import main as main_data
 from keras.activations import sigmoid
+
+from load_data import main as main_data
+from baseline import train as baseline
 
 def smape(a: np.array, b: np.array) -> float:
     a = np.reshape(a, (-1, ))
     b = np.reshape(b, (-1, ))
     return np.mean(2.0*np.abs(a-b) / (np.abs(a)+np.abs(b)+1)).item()*100
-
-def get_data(time_interval: str,
-             n_sliding: int,
-             sliding: bool=True) -> Tuple[np.array]:
-
-    #sliding_dates_week, tensor, _ = main_data()
-    _, tensor = main_data(time_interval=time_interval)
-    dates = list(tensor.keys())
-    sliding_dates = [dates[i:i+n_sliding] for i in range(len(dates)-n_sliding)]
-    n_weeks_sliding_train = (len(sliding_dates) * 2) // 3
-    X_train = []
-    y_train = []
-    X_test = []
-    y_test = []
-
-    for idx in range(len(sliding_dates)):
-        slot = sliding_dates[idx]
-        if sliding:
-            X_data = np.array([np.expand_dims(tensor[x],axis=-1)
-                for x in slot[:n_sliding]])
-            y_data = np.array([np.expand_dims(tensor[slot[-1]],axis=-1)])
-            if idx < n_weeks_sliding_train:
-                X_train.append(X_data)
-                y_train.append(y_data)
-            else:
-                X_test.append(X_data)
-                y_test.append(y_data)
-        else:
-            return np.array(list(tensor.values()))
-
-    X_train = np.array(X_train)
-    y_train = np.array(y_train)
-    X_test = np.array(X_test)
-    y_test = np.array(y_test)
-
-    y_train = np.swapaxes(y_train, 1, -1)
-    y_test = np.swapaxes(y_test, 1, -1)
-
-    return X_train, X_test, y_train, y_test
 
 def dae_model(rows: int, cols: int, conv=True) -> keras.Model:
     inp = layers.Input(shape=(rows, cols, 1))
@@ -216,19 +181,26 @@ def main(X_train: np.array,
          X_test: np.array,
          Y_train: np.array,
          Y_test: np.array,
+         tensor: Tuple[np.array],
+         num_experiment: int,
          interval: str,
          n_sliding: int) -> Dict:
+    Path(f'output/{interval}_{n_sliding}').mkdir(exist_ok=True)
+
     rmse = tf.keras.metrics.RootMeanSquaredError()
 
-    print('Get tensor data for training DAE...')
-    tensor = get_data(interval, n_sliding, sliding=False)
     dae, dae_feature = dae_model(X_train.shape[2], X_train.shape[3])
     dae.compile(
             loss=keras.losses.mean_squared_error,
             optimizer=keras.optimizers.Adam())
 
-    es = EarlyStopping(monitor='val_loss', mode='min', patience=20)
+    es = EarlyStopping(monitor='val_loss', mode='min', patience=5)
+
+    time_dae = time.time()
     dae.fit(tensor, tensor, epochs=500, callbacks=[es], validation_split=0.2)
+    training_dae = time.time() - time_dae
+
+    predict_dae = dae.predict(tensor)
 
     X_train_feature = get_hidden(dae_feature, X_train)
     X_test_feature = get_hidden(dae_feature, X_test)
@@ -239,49 +211,80 @@ def main(X_train: np.array,
     cnn.compile(
             loss=keras.losses.mean_squared_error,
             optimizer=keras.optimizers.Adam())
+    time_cnn = time.time()
     cnn.fit(
             X_train_feature,
             Y_train,
             epochs=500,
             callbacks=[es],
             validation_split=0.2)
+    training_cnn = time.time() - time_cnn
+    time_cnn = time.time()
     predict_cnn = cnn.predict(X_test_feature)
+    predicting_cnn = time.time() - time_cnn
+    pkl.dump(predict_cnn,
+            open(f'output/{interval}_{n_sliding}/dae_cnn_{num_experiment}.pkl',
+                'wb'))
+
     smape_cnn = smape(Y_test, predict_cnn)
 
     lstm = lstm_model(55, 36, X_train_feature.shape, n_sliding)
     lstm.compile(
             loss=keras.losses.mean_squared_error,
             optimizer=keras.optimizers.Adam())
+    time_lstm = time.time()
     lstm.fit(
             X_train_feature,
             Y_train,
             epochs=500,
             callbacks=[es],
             validation_split=0.2)
+    training_lstm = time.time() - time_lstm
+    time_lstm = time.time()
     predict_lstm = lstm.predict(X_test_feature)
+    predicting_lstm = time.time() - time_lstm
+    pkl.dump(predict_lstm,
+            open(f'output/{interval}_{n_sliding}/dae_lstm_{num_experiment}.pkl',
+                'wb'))
+
     smape_lstm = smape(Y_test, predict_lstm)
 
     convlstm = convlstm_model(55, 36, X_train_feature.shape)
     convlstm.compile(
             loss=keras.losses.mean_squared_error,
             optimizer=keras.optimizers.Adam())
+    time_convlstm = time.time()
     convlstm.fit(
             X_train_feature,
             Y_train,
             epochs=500,
             callbacks=[es],
             validation_split=0.2)
+    training_convlstm = time.time() - time_convlstm
+    time_convlstm = time.time()
     predict_convlstm = convlstm.predict(X_test_feature)
+    predicting_convlstm = time.time() - time_convlstm
+
+    pkl.dump(predict_convlstm,
+            open(f'output/{interval}_{n_sliding}/dae_convlstm_{num_experiment}.pkl',
+                'wb'))
+
     smape_convlstm = smape(Y_test, predict_convlstm)
 
     res = {}
-    res['smape_cnn'] = smape_cnn
-    res['smape_lstm'] = smape_lstm
-    res['smape_convlstm'] = smape_convlstm
-    res['rmse_cnn'] = rmse(Y_test, predict_cnn).numpy()
-    res['rmse_lstm'] = rmse(Y_test, predict_lstm).numpy()
-    res['rmse_convlstm'] = rmse(Y_test, predict_convlstm).numpy()
-    res['rmse_unet'] = rmse(tensor, tensor).numpy()
+    res['smape_dae_cnn'] = smape_cnn
+    res['smape_dae_lstm'] = smape_lstm
+    res['smape_dae_convlstm'] = smape_convlstm
+    res['rmse_dae_cnn'] = rmse(Y_test, predict_cnn).numpy()
+    res['rmse_dae_lstm'] = rmse(Y_test, predict_lstm).numpy()
+    res['rmse_dae_convlstm'] = rmse(Y_test, predict_convlstm).numpy()
+    res['rmse_dae'] = rmse(tensor, predict_dae).numpy()
+    res['training_dae_cnn'] = training_cnn
+    res['training_dae_lstm'] = training_lstm
+    res['training_dae_convlstm'] = training_convlstm
+    res['predicting_dae_cnn'] = predicting_cnn
+    res['predicting_dae_lstm'] = predicting_lstm
+    res['predicting_dae_convlstm'] = predicting_convlstm
 
     print()
     print('=============================================================')
@@ -308,14 +311,14 @@ def main(X_train: np.array,
     print('ConvLSTM model')
     print(convlstm.summary())
 
-    with open('result/dae_cnn_summary.txt', 'w') as f:
-        cnn.summary(print_fn=lambda x: f.write(x+'\n'))
+    #with open('result/dae_cnn_summary.txt', 'w') as f:
+    #    cnn.summary(print_fn=lambda x: f.write(x+'\n'))
 
-    with open('result/dae_lstm_summary.txt', 'w') as f:
-        lstm.summary(print_fn=lambda x: f.write(x+'\n'))
+    #with open('result/dae_lstm_summary.txt', 'w') as f:
+    #    lstm.summary(print_fn=lambda x: f.write(x+'\n'))
 
-    with open('result/dae_convlstm_summary.txt', 'w') as f:
-        convlstm.summary(print_fn=lambda x: f.write(x+'\n'))
+    #with open('result/dae_convlstm_summary.txt', 'w') as f:
+    #    convlstm.summary(print_fn=lambda x: f.write(x+'\n'))
 
     return res
 
@@ -325,7 +328,7 @@ if __name__ == '__main__':
     parser.add_argument('-e', '--experiments',
             metavar='E',
             type=int,
-            default=50,
+            default=20,
             help='number of experiments')
     parser.add_argument('-i', '--interval',
             metavar='I',
@@ -342,8 +345,9 @@ if __name__ == '__main__':
     print('Current n_sliding:', args.n_sliding)
     print('=================================================================')
     print()
-    print('Make X_train, X_test, Y_train, Y_test ...')
-    X_train, X_test, Y_train, Y_test = get_data(args.interval, args.n_sliding)
+    print('Make X_train, X_test, Y_train, Y_test and tensor ...')
+    X_train, X_test, Y_train, Y_test = main_data(args.interval, args.n_sliding)
+    tensor = main_data(args.interval, args.n_sliding, sliding=False)
     print('Data shape, X_train:', X_train.shape)
     print('Data shape, X_test:', X_test.shape)
     print('Data shape, Y_train:', Y_train.shape)
@@ -351,13 +355,28 @@ if __name__ == '__main__':
 
     result = []
     print('\nExperiments...')
-    for _ in tqdm(range(args.experiments)):
-        result.append(main(X_train,
-                           X_test,
-                           Y_train,
-                           Y_test,
-                           args.interval,
-                           args.n_sliding))
+    for expr in tqdm(range(args.experiments)):
+        res_dae = main(X_train,
+                X_test,
+                Y_train,
+                Y_test,
+                tensor,
+                expr,
+                args.interval,
+                args.n_sliding)
+        res_base = baseline(X_train,
+                X_test,
+                Y_train,
+                Y_test,
+                args.interval,
+                args.n_sliding,
+                expr)
+
+        res = res_dae.update(res_base)
+        result.append(res)
+
+
 
     df_res = pd.DataFrame(result)
-    df_res.to_csv(f'result/result_dae_{args.interval}_{args.n_sliding}.csv')
+    df_res.to_csv(f'result/result_{args.interval}_{args.n_sliding}.csv')
+    keras.backend.clear_session()

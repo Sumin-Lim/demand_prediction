@@ -7,9 +7,10 @@ Description:
     * Generate tensor
     * Split data for training and test
 '''
-from typing import List
+from typing import List, Tuple
 from tqdm import tqdm
 from datetime import datetime
+import pickle as pkl
 import numpy as np
 import pandas as pd
 import h3
@@ -88,7 +89,7 @@ def get_time_interval(df: pd.DataFrame, time_interval: str='24H') -> List:
 
     return dates
 
-def main(time_interval='24H'):
+def construct_matrix(time_interval='24H'):
     df = load_data()
 
     rows, cols = zip(*df['h3_xy'].unique())
@@ -135,5 +136,69 @@ def main(time_interval='24H'):
     return dates, tensor
     #return sliding_dates_week, tensor, tensor_binary
 
+def main(time_interval: str,
+        n_sliding: int,
+        sliding: bool=True,
+        is_saved: bool=True) -> Tuple[np.array]:
+
+    if is_saved and sliding:
+        X_train = pkl.load(
+                open(f'data/X_train_{time_interval}_{n_sliding}.pkl', 'rb'))
+        X_test = pkl.load(
+                open(f'data/X_test_{time_interval}_{n_sliding}.pkl', 'rb'))
+        y_train = pkl.load(
+                open(f'data/y_train_{time_interval}_{n_sliding}.pkl', 'rb'))
+        y_test = pkl.load(
+                open(f'data/y_test_{time_interval}_{n_sliding}.pkl', 'rb'))
+        return X_train, X_test, y_train, y_test
+
+    elif is_saved and (not sliding):
+        tensor = pkl.load(open(f'data/tensor_{time_interval}.pkl', 'rb'))
+        return np.array(list(tensor.values()))
+
+    #sliding_dates_week, tensor, _ = main_data()
+    _, tensor = main_data(time_interval=time_interval)
+    dates = list(tensor.keys())
+    sliding_dates = [dates[i:i+n_sliding] for i in range(len(dates)-n_sliding)]
+    n_weeks_sliding_train = (len(sliding_dates) * 2) // 3
+    X_train = []
+    y_train = []
+    X_test = []
+    y_test = []
+
+    for idx in range(len(sliding_dates)):
+        slot = sliding_dates[idx]
+        if sliding:
+            X_data = np.array([np.expand_dims(tensor[x],axis=-1)
+                for x in slot[:n_sliding]])
+            y_data = np.array([np.expand_dims(tensor[slot[-1]],axis=-1)])
+            if idx < n_weeks_sliding_train:
+                X_train.append(X_data)
+                y_train.append(y_data)
+            else:
+                X_test.append(X_data)
+                y_test.append(y_data)
+        else:
+            return np.array(list(tensor.values()))
+
+    X_train = np.array(X_train)
+    y_train = np.array(y_train)
+    X_test = np.array(X_test)
+    y_test = np.array(y_test)
+
+    y_train = np.swapaxes(y_train, 1, -1)
+    y_test = np.swapaxes(y_test, 1, -1)
+
+    pkl.dump(X_train,
+            open(f'data/X_train_{time_interval}_{n_sliding}.pkl', 'wb'))
+    pkl.dump(X_test,
+            open(f'data/X_test_{time_interval}_{n_sliding}.pkl', 'wb'))
+    pkl.dump(y_train,
+            open(f'data/y_train_{time_interval}_{n_sliding}.pkl', 'wb'))
+    pkl.dump(y_test,
+            open(f'data/y_test_{time_interval}_{n_sliding}.pkl', 'wb'))
+
+    return X_train, X_test, y_train, y_test
+
 if __name__=='__main__':
-    dates, tensor, tensor_binary = main(time_interval='30min')
+    X_train, X_test, y_train, y_test = main('30min', 4)
